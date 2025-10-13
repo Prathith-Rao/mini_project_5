@@ -1,0 +1,74 @@
+import { TimeDataPoint } from '../types/streetlight.types';
+
+export const generateTimeData = (
+  hours = 24,
+  intervals = 60,
+  trafficMultiplier = 1,
+  weatherSeverity = 0.2
+): TimeDataPoint[] => {
+  const data: TimeDataPoint[] = [];
+  const totalPoints = hours * intervals;
+
+  for (let i = 0; i < totalPoints; i++) {
+    const hour = Math.floor(i / intervals);
+    const minute = i % intervals;
+    const timeDecimal = hour + minute / 60;
+
+    const sunlight = Math.max(0, 100 * Math.sin(Math.PI * (timeDecimal - 6) / 12));
+
+    let traffic = 20 * trafficMultiplier;
+    if ((hour >= 7 && hour <= 9) || (hour >= 17 && hour <= 19)) {
+      traffic = (70 + Math.random() * 30) * trafficMultiplier;
+    } else if (hour >= 22 || hour <= 5) {
+      traffic = (5 + Math.random() * 10) * trafficMultiplier;
+    } else {
+      traffic = (30 + Math.random() * 20) * trafficMultiplier;
+    }
+
+    const motion = traffic > 50 ? (Math.random() > 0.3 ? 1 : 0) : (Math.random() > 0.7 ? 1 : 0);
+
+    const weather = Math.random() > (1 - weatherSeverity) ? (Math.random() > 0.5 ? 2 : 1) : 0;
+
+    let brightness = 0;
+
+    if (sunlight < 20) {
+      brightness = 40;
+      if (traffic > 60) brightness += 30;
+      else if (traffic > 30) brightness += 20;
+      if (motion) brightness += 20;
+      if (weather === 2) brightness += 10;
+    } else if (sunlight < 50) {
+      brightness = Math.max(0, 60 - sunlight);
+      if (traffic > 50) brightness += 15;
+    } else {
+      brightness = 0;
+    }
+
+    brightness = Math.min(100, Math.max(0, brightness + (Math.random() - 0.5) * 5));
+
+    data.push({
+      index: i,
+      time: `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`,
+      hour,
+      minute,
+      timeDecimal,
+      sunlight: parseFloat(sunlight.toFixed(2)),
+      traffic: parseFloat(traffic.toFixed(2)),
+      motion,
+      weather,
+      brightness: parseFloat(brightness.toFixed(2)),
+    });
+  }
+
+  return data;
+};
+
+export const trainAndPredict = (data: TimeDataPoint[]): TimeDataPoint[] => {
+  return data.map(point => {
+    const predicted = point.brightness + (Math.random() - 0.5) * 8;
+    return {
+      ...point,
+      predictedBrightness: parseFloat(Math.max(0, Math.min(100, predicted)).toFixed(2)),
+    };
+  });
+};

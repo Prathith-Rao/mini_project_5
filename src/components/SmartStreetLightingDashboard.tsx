@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Zap } from 'lucide-react';
 import { TimeDataPoint, CitySize } from '../types/streetlight.types';
-import { generateTimeData, trainAndPredict } from '../utils/dataGeneration';
-import { calculateEnergy, calculateCorrelation, getHourlyAggregated, getRealtimeData, getCumulativeSavings, getSystemHealth } from '../utils/calculations';
+import { generateTimeData } from '../utils/dataGeneration';
+import { trainAndPredictXGBoost } from '../utils/mlModel';
+import { calculateEnergy, calculateValidationMetrics, getHourlyAggregated, getRealtimeData, getCumulativeSavings, getSystemHealth } from '../utils/calculations';
+import { DEFAULT_SYSTEM_CONFIG, CITY_LAMP_CONFIGS } from '../config/systemConfig';
 import { CITY_DATA } from '../constants/cityData';
 import { MetricsCards } from './MetricsCards';
 import { ControlPanel } from './ControlPanel';
@@ -11,15 +13,17 @@ import { SystemHealthRadar } from './charts/SystemHealthRadar';
 import { BrightnessPattern } from './charts/BrightnessPattern';
 import { EnergyComparison } from './charts/EnergyComparison';
 import { MLAccuracy } from './charts/MLAccuracy';
-import { CumulativeSavings } from './charts/CumulativeSavings';
+import { CumulativeSavingsEnhanced } from './charts/CumulativeSavingsEnhanced';
+import { ValidationMetricsCard } from './charts/ValidationMetricsCard';
+import { ResidualPlot } from './charts/ResidualPlot';
 import { ImplementationTimeline } from './ImplementationTimeline';
 import { SystemSummary } from './SystemSummary';
 
 const SmartStreetLightingDashboard = () => {
   const [fullData, setFullData] = useState<TimeDataPoint[]>([]);
   const [displayData, setDisplayData] = useState<TimeDataPoint[]>([]);
-  const [metrics, setMetrics] = useState(calculateEnergy([]));
-  const [correlation, setCorrelation] = useState('0');
+  const [metrics, setMetrics] = useState(calculateEnergy([], DEFAULT_SYSTEM_CONFIG, 25000));
+  const [validation, setValidation] = useState(calculateValidationMetrics([]));
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
 
@@ -30,16 +34,23 @@ const SmartStreetLightingDashboard = () => {
 
   useEffect(() => {
     generateNewData();
-  }, [trafficLevel, weatherCondition]);
+  }, [trafficLevel, weatherCondition, citySize]);
 
   const generateNewData = () => {
-    const rawData = generateTimeData(24, 60, trafficLevel, weatherCondition);
-    const processedData = trainAndPredict(rawData);
+    const numLamps = CITY_LAMP_CONFIGS[citySize].numLamps;
+    const config = {
+      ...DEFAULT_SYSTEM_CONFIG,
+      lampPowerRated: CITY_LAMP_CONFIGS[citySize].lampPowerRated,
+    };
+
+    const rawData = generateTimeData(24, 60, trafficLevel, weatherCondition, config);
+    const processedData = trainAndPredictXGBoost(rawData, config);
+
     setFullData(processedData);
     setDisplayData([]);
     setCurrentIndex(0);
-    setMetrics(calculateEnergy(processedData));
-    setCorrelation(calculateCorrelation(processedData));
+    setMetrics(calculateEnergy(processedData, config, numLamps));
+    setValidation(calculateValidationMetrics(processedData));
   };
 
   useEffect(() => {
@@ -78,9 +89,24 @@ const SmartStreetLightingDashboard = () => {
   const currentHour = getCurrentHour();
   const progress = ((currentIndex / fullData.length) * 100).toFixed(1);
   const realtimeData = getRealtimeData(displayData);
-  const hourlyData = getHourlyAggregated(displayData.length > 0 ? displayData : fullData);
-  const systemHealth = getSystemHealth(displayData, correlation, metrics.savings);
-  const cumulativeSavings = getCumulativeSavings(displayData.length > 0 ? displayData : fullData);
+
+  const numLamps = CITY_LAMP_CONFIGS[citySize].numLamps;
+  const config = {
+    ...DEFAULT_SYSTEM_CONFIG,
+    lampPowerRated: CITY_LAMP_CONFIGS[citySize].lampPowerRated,
+  };
+
+  const hourlyData = getHourlyAggregated(
+    displayData.length > 0 ? displayData : fullData,
+    config,
+    numLamps
+  );
+  const systemHealth = getSystemHealth(displayData, validation, metrics.percentageSaved);
+  const cumulativeSavings = getCumulativeSavings(
+    displayData.length > 0 ? displayData : fullData,
+    config,
+    numLamps
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 text-white p-4">
@@ -90,13 +116,12 @@ const SmartStreetLightingDashboard = () => {
             <Zap className="text-yellow-400" size={40} />
             AI-Driven Smart Street Lighting System
           </h1>
-          <p className="text-blue-200 text-lg">IoT-Based Energy Optimization with Machine Learning</p>
+          <p className="text-blue-200 text-lg">IoT-Based Energy Optimization with XGBoost Machine Learning</p>
         </div>
 
         <MetricsCards
           metrics={metrics}
-          correlation={correlation}
-          progress={progress}
+          validation={validation}
           cityData={CITY_DATA[citySize]}
         />
 
@@ -123,18 +148,24 @@ const SmartStreetLightingDashboard = () => {
           <SystemHealthRadar data={systemHealth} />
           <BrightnessPattern data={hourlyData} />
           <EnergyComparison data={hourlyData} />
-          <MLAccuracy data={fullData} correlation={correlation} />
-          <CumulativeSavings data={cumulativeSavings} />
+          <MLAccuracy data={fullData} correlation={validation.pearsonR.toString()} />
+          <ValidationMetricsCard metrics={validation} />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 mb-4">
+          <CumulativeSavingsEnhanced data={cumulativeSavings} />
+          <ResidualPlot data={fullData} />
         </div>
 
         <ImplementationTimeline citySize={citySize} cityData={CITY_DATA[citySize]} />
 
         <SystemSummary
-          correlation={correlation}
+          validation={validation}
           metrics={metrics}
           dataLength={fullData.length}
           cityData={CITY_DATA[citySize]}
           citySize={citySize}
+          config={config}
         />
       </div>
     </div>

@@ -1,44 +1,103 @@
-import { TimeDataPoint, EnergyMetrics, HourlyData, SystemHealthMetric } from '../types/streetlight.types';
+import { TimeDataPoint, EnergyMetrics, HourlyData, SystemHealthMetric, ValidationMetrics, CumulativeSavingsPoint } from '../types/streetlight.types';
+import { SystemConfig } from '../config/systemConfig';
+import { calculatePowerConsumption, calculateTraditionalPower, watthourToKilowattHour } from './powerModel';
 
-export const calculateEnergy = (data: TimeDataPoint[]): EnergyMetrics => {
-  let smartEnergy = 0;
-  let traditionalEnergy = 0;
+export const calculateEnergy = (
+  data: TimeDataPoint[],
+  config: SystemConfig,
+  numLamps: number
+): EnergyMetrics => {
+  let smartEnergyWh = 0;
+  let traditionalEnergyWh = 0;
+
+  const traditionalPowerPerLamp = calculateTraditionalPower(config);
 
   data.forEach(point => {
-    smartEnergy += point.predictedBrightness || 0;
-    traditionalEnergy += 100;
+    const brightnessPercent = point.predictedBrightness || 0;
+    const smartPowerPerLamp = calculatePowerConsumption(brightnessPercent, config);
+
+    const timeIntervalHours = config.timeIntervalMinutes / 60;
+
+    smartEnergyWh += smartPowerPerLamp * timeIntervalHours * numLamps;
+    traditionalEnergyWh += traditionalPowerPerLamp * timeIntervalHours * numLamps;
   });
 
-  const savings = ((traditionalEnergy - smartEnergy) / traditionalEnergy) * 100;
+  const smartEnergyKwh = watthourToKilowattHour(smartEnergyWh);
+  const traditionalEnergyKwh = watthourToKilowattHour(traditionalEnergyWh);
+  const energySavedKwh = traditionalEnergyKwh - smartEnergyKwh;
+  const percentageSaved = (energySavedKwh / traditionalEnergyKwh) * 100;
+
+  const costSaved = energySavedKwh * config.energyCostPerKwh;
+
+  const co2Saved = energySavedKwh * config.co2EmissionFactor;
 
   return {
-    smartEnergy: smartEnergy.toFixed(2),
-    traditionalEnergy: traditionalEnergy.toFixed(2),
-    savings: savings.toFixed(2),
+    smartEnergy: smartEnergyWh,
+    traditionalEnergy: traditionalEnergyWh,
+    energySaved: energySavedKwh * 1000,
+    percentageSaved: parseFloat(percentageSaved.toFixed(2)),
+    costSaved: parseFloat(costSaved.toFixed(2)),
+    co2Saved: parseFloat(co2Saved.toFixed(2)),
+    smartEnergyKwh: parseFloat(smartEnergyKwh.toFixed(2)),
+    traditionalEnergyKwh: parseFloat(traditionalEnergyKwh.toFixed(2)),
+    energySavedKwh: parseFloat(energySavedKwh.toFixed(2)),
   };
 };
 
-export const calculateCorrelation = (data: TimeDataPoint[]): string => {
+export const calculateValidationMetrics = (data: TimeDataPoint[]): ValidationMetrics => {
   const n = data.length;
   let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+  let sumSquaredError = 0, sumAbsError = 0, sumMape = 0;
 
   data.forEach(point => {
-    const x = point.brightness;
-    const y = point.predictedBrightness || 0;
-    sumX += x;
-    sumY += y;
-    sumXY += x * y;
-    sumX2 += x * x;
-    sumY2 += y * y;
+    const actual = point.brightness;
+    const predicted = point.predictedBrightness || 0;
+    const error = actual - predicted;
+
+    sumX += actual;
+    sumY += predicted;
+    sumXY += actual * predicted;
+    sumX2 += actual * actual;
+    sumY2 += predicted * predicted;
+    sumSquaredError += error * error;
+    sumAbsError += Math.abs(error);
+
+    if (actual !== 0) {
+      sumMape += Math.abs(error / actual);
+    }
   });
 
   const numerator = n * sumXY - sumX * sumY;
   const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+  const pearsonR = numerator / denominator;
 
-  return (numerator / denominator).toFixed(4);
+  const rSquared = pearsonR * pearsonR;
+
+  const rmse = Math.sqrt(sumSquaredError / n);
+
+  const mae = sumAbsError / n;
+
+  const mape = (sumMape / n) * 100;
+
+  return {
+    pearsonR: parseFloat(pearsonR.toFixed(4)),
+    rSquared: parseFloat(rSquared.toFixed(4)),
+    rmse: parseFloat(rmse.toFixed(3)),
+    mae: parseFloat(mae.toFixed(3)),
+    mape: parseFloat(mape.toFixed(2)),
+  };
 };
 
-export const getHourlyAggregated = (data: TimeDataPoint[]): HourlyData[] => {
+export const calculateCorrelation = (data: TimeDataPoint[]): string => {
+  const metrics = calculateValidationMetrics(data);
+  return metrics.pearsonR.toFixed(4);
+};
+
+export const getHourlyAggregated = (
+  data: TimeDataPoint[],
+  config: SystemConfig,
+  numLamps: number
+): HourlyData[] => {
   const hourly: HourlyData[] = [];
 
   for (let h = 0; h < 24; h++) {
@@ -47,8 +106,21 @@ export const getHourlyAggregated = (data: TimeDataPoint[]): HourlyData[] => {
       const avgBrightness = hourData.reduce((sum, d) => sum + (d.predictedBrightness || 0), 0) / hourData.length;
       const avgTraffic = hourData.reduce((sum, d) => sum + d.traffic, 0) / hourData.length;
       const avgSunlight = hourData.reduce((sum, d) => sum + d.sunlight, 0) / hourData.length;
-      const smartEnergy = hourData.reduce((sum, d) => sum + (d.predictedBrightness || 0), 0);
-      const tradEnergy = hourData.length * 100;
+
+      let smartEnergyWh = 0;
+      let traditionalEnergyWh = 0;
+
+      hourData.forEach(point => {
+        const smartPower = calculatePowerConsumption(point.predictedBrightness || 0, config);
+        const tradPower = calculateTraditionalPower(config);
+        const timeHours = config.timeIntervalMinutes / 60;
+
+        smartEnergyWh += smartPower * timeHours * numLamps;
+        traditionalEnergyWh += tradPower * timeHours * numLamps;
+      });
+
+      const smartEnergyKwh = watthourToKilowattHour(smartEnergyWh);
+      const tradEnergyKwh = watthourToKilowattHour(traditionalEnergyWh);
 
       hourly.push({
         hour: `${h}:00`,
@@ -56,9 +128,11 @@ export const getHourlyAggregated = (data: TimeDataPoint[]): HourlyData[] => {
         brightness: parseFloat(avgBrightness.toFixed(2)),
         traffic: parseFloat(avgTraffic.toFixed(2)),
         sunlight: parseFloat(avgSunlight.toFixed(2)),
-        smartEnergy: parseFloat(smartEnergy.toFixed(2)),
-        traditionalEnergy: parseFloat(tradEnergy.toFixed(2)),
-        savings: parseFloat(((tradEnergy - smartEnergy) / tradEnergy * 100).toFixed(2)),
+        smartEnergy: parseFloat(smartEnergyKwh.toFixed(3)),
+        traditionalEnergy: parseFloat(tradEnergyKwh.toFixed(3)),
+        savings: parseFloat(((tradEnergyKwh - smartEnergyKwh) / tradEnergyKwh * 100).toFixed(2)),
+        smartPower: parseFloat((smartEnergyWh / hourData.length).toFixed(2)),
+        traditionalPower: parseFloat((traditionalEnergyWh / hourData.length).toFixed(2)),
       });
     }
   }
@@ -76,23 +150,38 @@ export const getRealtimeData = (displayData: TimeDataPoint[]) => {
   }));
 };
 
-export const getCumulativeSavings = (data: TimeDataPoint[]) => {
-  const hourly = getHourlyAggregated(data);
-  let cumulative = 0;
+export const getCumulativeSavings = (
+  data: TimeDataPoint[],
+  config: SystemConfig,
+  numLamps: number
+): CumulativeSavingsPoint[] => {
+  const hourly = getHourlyAggregated(data, config, numLamps);
+  let cumulativeEnergyKwh = 0;
+  let cumulativeCost = 0;
+  let cumulativeCO2 = 0;
 
   return hourly.map(h => {
-    cumulative += h.savings;
+    const hourEnergySaved = (h.traditionalEnergy - h.smartEnergy);
+    cumulativeEnergyKwh += hourEnergySaved;
+    cumulativeCost += hourEnergySaved * config.energyCostPerKwh;
+    cumulativeCO2 += hourEnergySaved * config.co2EmissionFactor;
+
     return {
       hour: h.hour,
-      savings: parseFloat((cumulative / (h.hourNum + 1)).toFixed(2)),
+      hourNum: h.hourNum,
+      energySavedKwh: parseFloat(hourEnergySaved.toFixed(3)),
+      cumulativeEnergySavedKwh: parseFloat(cumulativeEnergyKwh.toFixed(2)),
+      percentageSaved: h.savings,
+      cumulativeCostSaved: parseFloat(cumulativeCost.toFixed(2)),
+      cumulativeCO2Saved: parseFloat(cumulativeCO2.toFixed(2)),
     };
   });
 };
 
 export const getSystemHealth = (
   displayData: TimeDataPoint[],
-  correlation: string,
-  savingsPercent: string
+  validation: ValidationMetrics,
+  savingsPercent: number
 ): SystemHealthMetric[] => {
   if (displayData.length === 0) return [];
 
@@ -103,9 +192,9 @@ export const getSystemHealth = (
 
   return [
     { metric: 'Response Time', value: responseTime, fullMark: 100 },
-    { metric: 'Brightness Accuracy', value: parseFloat(correlation) * 100, fullMark: 100 },
+    { metric: 'Model Accuracy (R²)', value: validation.rSquared * 100, fullMark: 100 },
     { metric: 'System Uptime', value: uptime, fullMark: 100 },
-    { metric: 'Traffic Detection', value: avgTraffic, fullMark: 100 },
-    { metric: 'Energy Efficiency', value: parseFloat(savingsPercent), fullMark: 100 },
+    { metric: 'Traffic Detection', value: Math.min(avgTraffic, 100), fullMark: 100 },
+    { metric: 'Energy Efficiency', value: savingsPercent, fullMark: 100 },
   ];
 };

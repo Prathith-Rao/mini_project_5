@@ -1,10 +1,12 @@
 import { TimeDataPoint } from '../types/streetlight.types';
+import { SystemConfig } from '../config/systemConfig';
 
 export const generateTimeData = (
   hours = 24,
   intervals = 60,
   trafficMultiplier = 1,
-  weatherSeverity = 0.2
+  weatherSeverity = 0.2,
+  config: SystemConfig
 ): TimeDataPoint[] => {
   const data: TimeDataPoint[] = [];
   const totalPoints = hours * intervals;
@@ -29,7 +31,7 @@ export const generateTimeData = (
 
     const weather = Math.random() > (1 - weatherSeverity) ? (Math.random() > 0.5 ? 2 : 1) : 0;
 
-    let brightness = 0;
+    let brightness = config.minBrightness;
 
     if (sunlight < 20) {
       brightness = 40;
@@ -38,13 +40,16 @@ export const generateTimeData = (
       if (motion) brightness += 20;
       if (weather === 2) brightness += 10;
     } else if (sunlight < 50) {
-      brightness = Math.max(0, 60 - sunlight);
+      brightness = Math.max(config.minBrightness, 60 - sunlight);
       if (traffic > 50) brightness += 15;
     } else {
       brightness = 0;
     }
 
-    brightness = Math.min(100, Math.max(0, brightness + (Math.random() - 0.5) * 5));
+    brightness = Math.min(
+      config.maxBrightness,
+      Math.max(config.minBrightness, brightness + (Math.random() - 0.5) * 5)
+    );
 
     data.push({
       index: i,
@@ -61,14 +66,4 @@ export const generateTimeData = (
   }
 
   return data;
-};
-
-export const trainAndPredict = (data: TimeDataPoint[]): TimeDataPoint[] => {
-  return data.map(point => {
-    const predicted = point.brightness + (Math.random() - 0.5) * 8;
-    return {
-      ...point,
-      predictedBrightness: parseFloat(Math.max(0, Math.min(100, predicted)).toFixed(2)),
-    };
-  });
 };

@@ -1,14 +1,13 @@
-import { TrendingDown, Zap, Activity, Eye, MapPin } from 'lucide-react';
-import { EnergyMetrics, CityData } from '../types/streetlight.types';
+import { TrendingDown, Zap, Activity, DollarSign, Leaf } from 'lucide-react';
+import { EnergyMetrics, ValidationMetrics, CityData } from '../types/streetlight.types';
 
 interface MetricsCardsProps {
   metrics: EnergyMetrics;
-  correlation: string;
-  progress: string;
+  validation: ValidationMetrics;
   cityData: CityData;
 }
 
-export const MetricsCards = ({ metrics, correlation, progress, cityData }: MetricsCardsProps) => {
+export const MetricsCards = ({ metrics, validation, cityData }: MetricsCardsProps) => {
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
       <div className="bg-gradient-to-br from-green-600 to-green-700 rounded-lg p-4 shadow-lg">
@@ -16,7 +15,8 @@ export const MetricsCards = ({ metrics, correlation, progress, cityData }: Metri
           <TrendingDown size={24} />
           <h3 className="text-sm font-semibold">Energy Saved</h3>
         </div>
-        <p className="text-3xl font-bold">{metrics.savings}%</p>
+        <p className="text-3xl font-bold">{metrics.percentageSaved}%</p>
+        <p className="text-xs opacity-80">{metrics.energySavedKwh.toFixed(1)} kWh</p>
       </div>
 
       <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg p-4 shadow-lg">
@@ -24,31 +24,35 @@ export const MetricsCards = ({ metrics, correlation, progress, cityData }: Metri
           <Zap size={24} />
           <h3 className="text-sm font-semibold">Smart Energy</h3>
         </div>
-        <p className="text-3xl font-bold">{(parseFloat(metrics.smartEnergy) / 1000).toFixed(1)}k</p>
+        <p className="text-3xl font-bold">{metrics.smartEnergyKwh.toFixed(1)}</p>
+        <p className="text-xs opacity-80">kWh consumed</p>
       </div>
 
-      <div className="bg-gradient-to-br from-purple-600 to-purple-700 rounded-lg p-4 shadow-lg">
+      <div className="bg-gradient-to-br from-cyan-600 to-cyan-700 rounded-lg p-4 shadow-lg">
         <div className="flex items-center gap-2 mb-1">
           <Activity size={24} />
-          <h3 className="text-sm font-semibold">Accuracy (r)</h3>
+          <h3 className="text-sm font-semibold">Model R²</h3>
         </div>
-        <p className="text-3xl font-bold">{correlation}</p>
+        <p className="text-3xl font-bold">{validation.rSquared}</p>
+        <p className="text-xs opacity-80">RMSE: {validation.rmse}</p>
       </div>
 
       <div className="bg-gradient-to-br from-orange-600 to-orange-700 rounded-lg p-4 shadow-lg">
         <div className="flex items-center gap-2 mb-1">
-          <Eye size={24} />
-          <h3 className="text-sm font-semibold">Progress</h3>
+          <DollarSign size={24} />
+          <h3 className="text-sm font-semibold">Cost Saved</h3>
         </div>
-        <p className="text-3xl font-bold">{progress}%</p>
+        <p className="text-3xl font-bold">${metrics.costSaved}</p>
+        <p className="text-xs opacity-80">24-hour period</p>
       </div>
 
-      <div className="bg-gradient-to-br from-pink-600 to-pink-700 rounded-lg p-4 shadow-lg">
+      <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 rounded-lg p-4 shadow-lg">
         <div className="flex items-center gap-2 mb-1">
-          <MapPin size={24} />
-          <h3 className="text-sm font-semibold">City Lights</h3>
+          <Leaf size={24} />
+          <h3 className="text-sm font-semibold">CO₂ Reduced</h3>
         </div>
-        <p className="text-3xl font-bold">{cityData.lights.toLocaleString()}</p>
+        <p className="text-3xl font-bold">{metrics.co2Saved.toFixed(1)}</p>
+        <p className="text-xs opacity-80">kg CO₂</p>
       </div>
     </div>
   );

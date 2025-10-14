@@ -125,6 +125,7 @@ const SmartStreetLightingDashboard = () => {
   const [correlation, setCorrelation] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
+  const [viewIndex, setViewIndex] = useState(0); // For timeline scrubbing
   
   // Interactive controls
   const [trafficLevel, setTrafficLevel] = useState(1);
@@ -148,6 +149,7 @@ const SmartStreetLightingDashboard = () => {
     setFullData(processedData);
     setDisplayData([]);
     setCurrentIndex(0);
+    setViewIndex(0);
     setMetrics(calculateEnergy(processedData));
     setCorrelation(calculateCorrelation(processedData));
   };
@@ -162,6 +164,7 @@ const SmartStreetLightingDashboard = () => {
             return fullData.length;
           }
           setDisplayData(fullData.slice(0, next));
+          setViewIndex(next); // Update view index to follow simulation
           return next;
         });
       }, 100);
@@ -201,8 +204,17 @@ const SmartStreetLightingDashboard = () => {
   };
 
   const getRealtimeData = () => {
-    if (displayData.length === 0) return [];
-    return displayData.slice(-60).map((d, i) => ({
+    // If simulation is complete, use viewIndex for scrubbing
+    const dataToUse = displayData.length === fullData.length ? fullData : displayData;
+    const currentViewIndex = displayData.length === fullData.length ? viewIndex : currentIndex;
+    
+    if (dataToUse.length === 0) return [];
+    
+    // Get 60 data points (1 hour) centered around or ending at current view
+    const endIndex = Math.min(currentViewIndex, dataToUse.length);
+    const startIndex = Math.max(0, endIndex - 60);
+    
+    return dataToUse.slice(startIndex, endIndex).map((d, i) => ({
       time: d.time,
       brightness: d.predictedBrightness,
       traffic: d.traffic,
@@ -327,6 +339,7 @@ const SmartStreetLightingDashboard = () => {
                 onClick={() => {
                   setCurrentIndex(0);
                   setDisplayData([]);
+                  setViewIndex(0);
                   setIsRunning(false);
                 }}
                 className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg flex items-center gap-2"
@@ -442,8 +455,37 @@ const SmartStreetLightingDashboard = () => {
               <Activity className="text-green-400" size={20} />
               Real-Time System Monitor (Last 60 Minutes)
             </h3>
+            
+            {/* Timeline Scrubber - only show when simulation is complete */}
+            {displayData.length === fullData.length && fullData.length > 0 && (
+              <div className="mb-3 bg-slate-700 p-3 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold">Timeline Scrubber</span>
+                  <span className="text-sm text-slate-300">
+                    {fullData[Math.min(viewIndex, fullData.length - 1)]?.time || '00:00'}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="60"
+                  max={fullData.length}
+                  step="1"
+                  value={viewIndex}
+                  onChange={(e) => setViewIndex(parseInt(e.target.value))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-slate-400 mt-1">
+                  <span>00:00</span>
+                  <span>06:00</span>
+                  <span>12:00</span>
+                  <span>18:00</span>
+                  <span>24:00</span>
+                </div>
+              </div>
+            )}
+            
             <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={realtimeData}>
+              <LineChart data={realtimeData} key={viewIndex}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis dataKey="time" stroke="#9CA3AF" interval={14} />
                 <YAxis stroke="#9CA3AF" />
@@ -458,6 +500,7 @@ const SmartStreetLightingDashboard = () => {
                   strokeWidth={3}
                   dot={false}
                   name="Brightness (%)"
+                  isAnimationActive={false}
                 />
                 <Line 
                   type="monotone" 
@@ -466,6 +509,7 @@ const SmartStreetLightingDashboard = () => {
                   strokeWidth={2}
                   dot={false}
                   name="Traffic (%)"
+                  isAnimationActive={false}
                 />
               </LineChart>
             </ResponsiveContainer>

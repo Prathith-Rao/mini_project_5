@@ -116,7 +116,7 @@ const SmartStreetLightingDashboard = () => {
             <Zap className="text-yellow-400" size={40} />
             AI-Driven Smart Street Lighting System
           </h1>
-          <p className="text-blue-200 text-lg">IoT-Based Energy Optimization with XGBoost Machine Learning</p>
+          <p className="text-blue-200 text-lg">Simulating IoT-Based Energy Optimization with XGBoost Machine Learning</p>
         </div>
 
         <MetricsCards
